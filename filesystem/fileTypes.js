@@ -29,7 +29,7 @@ export class Directory extends File{
     }
 
     addFile(file) {
-        const check=this.files.some(sub=>(sub.name===file.name && sub.type===file.type))
+        const check=this.files.some(sub=>(sub.name===file.name));
         if(check){
             throw new CustomError(`File ${file.name} already exists in ${this.name}`, ErrorCodes.ARG_ALREADY_EXISTS);
         }
@@ -41,6 +41,9 @@ export class Directory extends File{
             file.addFile(new FolderLink("..",this))
         }
         this.files.push(file);
+    }
+    searchForFile(fileName){
+        return this.files.find(file => file.name === fileName);
     }
 }
 

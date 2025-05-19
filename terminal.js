@@ -1,6 +1,6 @@
 import { isAlphanumericUnderscore, isPrintable } from "./utils/string.js";
 import {CustomError,ErrorCodes} from "./utils/error.js"
-import * as file from "./filesystem/fileTypes.js"
+import * as FILE from "./filesystem/fileTypes.js"
 
 
 
@@ -16,7 +16,7 @@ class Command {
 class User{
     constructor(name, home) {
         this.name = name;
-        this.homeDir = new file.Directory(name);
+        this.homeDir = new FILE.Directory(name);
         try{
             home.addFile(this.homeDir);
         }catch(e){
@@ -24,8 +24,44 @@ class User{
         }
     }
 }
+function createCommand( name, execFn, description = '') {
+    return new Command(name, execFn, description);
+}
 
-
+function initBasicBin(folder){
+    var help=createCommand('help', (args, term) => {
+        let cmds = term.listCommands();
+        const helpText = [
+            "Available commands:",
+            ...cmds.map(cmd =>
+                `  ${cmd.command.name} :${cmd.command.description || ''}`
+            )
+        ].join('\n');
+        term.printToOutput(helpText);
+    }, "Show this help message");
+    var helpFile=new FILE.FileExe("help",help);
+    folder.addFile(helpFile);
+    var clear=createCommand('clear', (args, term) => {
+        term.outputDiv.innerHTML = '';
+    }, "Clear the terminal screen");
+    var clearFile=new FILE.FileExe("clear",clear);
+    folder.addFile(clearFile);
+    var date=createCommand('date', (args, term) => {
+        term.printToOutput(new Date().toString());
+    }, "Display the current date and time");
+    var dateFile=new FILE.FileExe("date",date);
+    folder.addFile(dateFile);
+    var echo=createCommand('echo', (args, term) => {
+        term.printToOutput(args.join(' '));
+    }, "Display [text]");
+    var echoFile=new FILE.FileExe("echo",echo);
+    folder.addFile(echoFile);
+    var whoami=createCommand('whoami', (args, term) => {
+        term.printToOutput(term.user.name);
+    }, "Display the current user");
+    var whoamiFile=new FILE.FileExe("whoami",whoami);
+    folder.addFile(whoamiFile);
+}
 
 class WebTerminal {
     constructor({ outputDiv, commandInput, terminalDiv }) {
@@ -34,16 +70,16 @@ class WebTerminal {
         this.terminalDiv = terminalDiv;
         this.history = [];
         this.historyIndex = -1;
-        this.commands = {}; // key: fullPath, value: Command
+        this.commandsCached = {}; // key: fullPath, value: Command
         this.user = null;   // Will hold the User object after login
         this.awaitingLogin = true; // Login state
-        this.root=new file.Directory("");
+        this.root=new FILE.Directory("");
         this.currentDir=this.root;
         this.home=null;
-        this.bin=new file.Directory("bin")
-        this.path=[new file.Directory()]
+        this.bin=new FILE.Directory("bin")
+        this.path=[this.bin]
         try{
-            this.home=new file.Directory("home");
+            this.home=new FILE.Directory("home");
             this.root.addFile(this.home);
         }catch(e){
             if(e instanceof CustomError){
@@ -53,7 +89,21 @@ class WebTerminal {
             }
         }
         this.init();
+        this.commandsCached=this.listCommands();
+        initBasicBin(this.bin);
+    }
 
+   
+    listCommands(){
+        var commands=[];
+        for (const x of this.path){
+            for(const file of x.files){
+                if (file.type === FILE.FileTypes.EXE) {
+                    commands.push(file);
+                }
+            }
+        }
+        return commands;
     }
 
     init() {
@@ -66,8 +116,9 @@ class WebTerminal {
 
         this.commandInput.addEventListener('keydown', (event) => this.handleInput(event));
         this.terminalDiv.addEventListener('click', () => this.commandInput.focus());
+        this.bin.addFile(new FILE.File("ciao.txt","ciao",FILE.FileTypes.TEXT));
+        this.listCommands();
     }
-
     handleInput(event) {
         if (event.key === 'Enter') {
             event.preventDefault();
@@ -134,8 +185,8 @@ class WebTerminal {
             } else if (event.key === 'Tab') {
                 event.preventDefault();
                 const currentInput = this.commandInput.value.toLowerCase();
-                const availableCommands = Object.keys(this.commands);
-                const suggestions = availableCommands.filter(cmd => cmd.startsWith(currentInput));
+                const availableCommands = this.commandsCached;
+                const suggestions = availableCommands.filter(cmd => cmd.name.startsWith(currentInput));
                 if (suggestions.length === 1) {
                     this.commandInput.value = suggestions[0] + " ";
                 } else if (suggestions.length > 1) {
@@ -169,21 +220,29 @@ class WebTerminal {
         //fare qualcosa con il path
     }
 
-    // List commands under a path, or all if no path
-    listCommands(path = null) {
-    }
 
     processCommand(commandText) {
+        //for now mono comand but i want to add shell operators
         const parts = commandText.split(' ');
         const commandInput = parts[0];
         const args = parts.slice(1);
-
-        const cmdObj = this.findCommand(commandInput);
-        if (cmdObj) {
+        var commandFile=null;
+        for (const x of this.path) {
+            const temp=x.searchForFile(commandInput);
+            if(temp){
+                if(temp.type===FILE.FileTypes.EXE){
+                    commandFile=temp;
+                    break;
+                }
+                continue;
+            }
+        }
+        console.log(commandFile);
+        if (commandFile) {
             try {
-                cmdObj.exec(args, this);
+                commandFile.command.exec(args, this);
             } catch (e) {
-                this.printToOutput(`Error executing command ${cmdObj.name}: ${e.message}`, 'error');
+                this.printToOutput(`Error executing command ${commandFile.name}: ${e.message}`, 'error');
             }
         } else {
             this.printToOutput(`bash: command not found: ${commandInput}`, 'error');
@@ -192,94 +251,13 @@ class WebTerminal {
 }
 
 // Factory function for commands
-function createCommand(path, name, execFn, description = '') {
-    return new Command(path, name, execFn, description);
-}
 
 document.addEventListener('DOMContentLoaded', () => {
     const outputDiv = document.getElementById('output');
     const commandInput = document.getElementById('commandInput');
     const terminalDiv = document.getElementById('terminal');
 
-    const terminal = new WebTerminal({ outputDiv, commandInput, terminalDiv });
+    const terminalObj = new WebTerminal({ outputDiv, commandInput, terminalDiv });
 
-    // Register commands under /bin
-    /*terminal.registerCommand(createCommand('/bin', 'help', (args, term) => {
-        let path = args[0] || null;
-        let cmds = path ? term.listCommands(path) : term.listCommands();
-        const helpText = [
-            "Available commands:",
-            ...cmds.map(cmd =>
-                `  ${cmd.fullPath.padEnd(20)}${cmd.description || ''}`
-            )
-        ].join('\n');
-        term.printToOutput(helpText);
-    }, "Show this help message"));
-
-    terminal.registerCommand(createCommand('/bin', 'clear', (args, term) => {
-        term.outputDiv.innerHTML = '';
-    }, "Clear the terminal screen"));
-
-    terminal.registerCommand(createCommand('/bin', 'date', (args, term) => {
-        term.printToOutput(new Date().toString());
-    }, "Display the current date and time"));
-
-    terminal.registerCommand(createCommand('/bin', 'echo', (args, term) => {
-        term.printToOutput(args.join(' '));
-    }, "Display [text]"));
-
-    terminal.registerCommand(createCommand('/bin', 'whoami', (args, term) => {
-        term.printToOutput('user');
-    }, "Display the current user"));
-
-    terminal.registerCommand(createCommand('/bin', 'ls', (args, term) => {
-        term.printToOutput('README.md  index.html  terminal.js  style.css (simulated)');
-    }, "List files (simulated)"));
-
-    terminal.registerCommand(createCommand('/bin', 'cat', (args, term) => {
-        if (args.length === 0) {
-            term.printToOutput('Usage: cat [filename]', 'error');
-            return;
-        }
-        const fileName = args[0];
-        const fileContent = {
-            'README.md': 'This is a simulated README file for the web terminal.',
-            'index.html': '<!DOCTYPE html>...',
-            'terminal.js': '// JavaScript for terminal...'
-        };
-        if (fileContent[fileName]) {
-            term.printToOutput(fileContent[fileName]);
-        } else {
-            term.printToOutput(`cat: ${fileName}: No such file or directory`, 'error');
-        }
-    }, "Display file content (simulated)"));
-
-    terminal.registerCommand(createCommand('/bin', 'pwd', (args, term) => {
-        term.printToOutput('/home/user/webterm');
-    }, "Print working directory (simulated)"));
-
-    terminal.registerCommand(createCommand('/bin', 'uname', (args, term) => {
-        term.printToOutput('Linux WebTerminal 1.0 x86_64 GNU/Linux (Simulated)');
-    }, "Print system information (simulated)"));
-
-    terminal.registerCommand(createCommand('/bin', 'neofetch', (args, term) => {
-        const neofetchOutput = `
-        .--.
-       |o_o |   user@webterm
-       |:_/ |   ------------
-      //   \\ \\  OS: WebTerminal GNU/Linux x86_64 (Simulated)
-     (|     | ) Host: Your Browser
-    /'\\_   _/ \` Kernel: Simulated Kernel 5.x
-    \\___)=(___/  Uptime: (simulated)
-                  Shell: bash (simulated)
-                  Resolution: ${window.innerWidth}x${window.innerHeight}
-                  Terminal: WebTerm
-                  CPU: Your CPU (Simulated)
-                  GPU: Your GPU (Simulated)
-                  Memory: (simulated)
-        `;
-        term.printToOutput(neofetchOutput.trim());
-    }, "Show system information (simulated fancy)"));
-    */
 
     });
