@@ -69,6 +69,9 @@
         .info {
             color: #4ec9b0;
         }
+        .strega{
+            color:midnightblue;
+        }
 
     </style>
 </head>
@@ -76,11 +79,10 @@
     <div id="terminal">
         <div id="output"></div>
         <div class="input-line">
-            <span class="prompt">user@webterm:~$</span>
+            <span class="prompt" id="prompt">username:</span>
             <input type="text" id="commandInput" autofocus>
         </div>
     </div>
-
-    <script src="terminal.js"></script>
+    <script src="terminal.js" type="module"></script>
 </body>
 </html>
